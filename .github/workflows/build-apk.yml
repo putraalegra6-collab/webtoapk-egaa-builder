@@ -1,4 +1,5 @@
 name: Build APK
+run-name: Build ${{ inputs.build_id }}
 
 on:
   workflow_dispatch:
@@ -56,7 +57,7 @@ jobs:
           if [ -n "$ICON_URL" ]; then
             curl -fsSL --max-filesize 3000000 "$ICON_URL" -o /tmp/icon.src
           else
-            convert -size 512x512 xc:'#FFE500' -gravity center -pointsize 220 -fill '#111111' -annotate 0 'E' /tmp/icon.src
+            convert -size 512x512 xc:'#FFE500' -gravity center -pointsize 220 -fill '#111111' -annotate 0 'E' PNG:/tmp/icon.src
           fi
           for entry in "192 xxxhdpi" "96 xhdpi" "72 hdpi" "48 mdpi"; do
             set -- $entry
