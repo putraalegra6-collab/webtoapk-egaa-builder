@@ -1,0 +1,34 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.egaa.webtoapk'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId project.property("APP_ID")
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName project.property("APP_VERSION_NAME")
+        resValue "string", "app_name", project.property("APP_NAME")
+        resValue "string", "start_url", project.property("APP_URL")
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+}
