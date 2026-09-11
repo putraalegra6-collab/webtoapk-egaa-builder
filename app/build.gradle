@@ -11,9 +11,13 @@ android {
         minSdk 21
         targetSdk 34
         versionCode 1
-        versionName project.property("APP_VERSION_NAME")
+        versionName project.findProperty("APP_VERSION_NAME") ?: "1.0"
         resValue "string", "app_name", project.property("APP_NAME")
         resValue "string", "start_url", project.property("APP_URL")
+        resValue "color", "splash_bg", (project.findProperty("APP_SPLASH_COLOR") ?: "#FFE500")
+        manifestPlaceholders = [
+            screenOrientation: (project.findProperty("APP_ORIENTATION") ?: "unspecified")
+        ]
     }
 
     buildTypes {
