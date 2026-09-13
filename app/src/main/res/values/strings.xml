@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_title">You are offline</string>
+    <string name="offline_message">We could not reach the site. Check your connection and try again.</string>
+    <string name="offline_retry">Try again</string>
+</resources>
