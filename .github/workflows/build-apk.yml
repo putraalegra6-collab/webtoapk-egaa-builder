@@ -24,6 +24,10 @@ on:
         description: Splash screen background color (#RRGGBB)
         required: false
         default: "#FFE500"
+      splash_video_url:
+        description: Public URL of an MP4 splash video
+        required: false
+        default: ""
       orientation:
         description: Screen orientation (unspecified, portrait, landscape)
         required: false
@@ -32,6 +36,18 @@ on:
         description: App version name
         required: false
         default: "1.0"
+      build_format:
+        description: Output format (apk, aab, both)
+        required: false
+        default: "apk"
+      fullscreen:
+        description: Hide the status bar (true/false)
+        required: false
+        default: "false"
+      permissions:
+        description: Enable camera, location and file upload permissions (true/false)
+        required: false
+        default: "false"
 
 permissions:
   contents: write
@@ -52,11 +68,17 @@ jobs:
           COLOR="${{ github.event.inputs.splash_color }}"
           ORIENT="${{ github.event.inputs.orientation }}"
           VER="${{ github.event.inputs.version_name }}"
+          FORMAT="${{ github.event.inputs.build_format }}"
+          FULLSCREEN="${{ github.event.inputs.fullscreen }}"
+          PERMS="${{ github.event.inputs.permissions }}"
           echo "$URL" | grep -Eq '^https?://[A-Za-z0-9._~:/?#@!$&()*+,;=%-]+$' || { echo "Invalid website URL"; exit 1; }
           echo "$PKG" | grep -Eq '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$' || { echo "Invalid package name"; exit 1; }
           echo "$COLOR" | grep -Eq '^#[0-9A-Fa-f]{6}$' || { echo "Invalid splash color"; exit 1; }
           echo "$ORIENT" | grep -Eq '^(unspecified|portrait|landscape)$' || { echo "Invalid orientation"; exit 1; }
           echo "$VER" | grep -Eq '^[0-9]+(\.[0-9]+){0,2}$' || { echo "Invalid version name"; exit 1; }
+          echo "$FORMAT" | grep -Eq '^(apk|aab|both)$' || { echo "Invalid build format"; exit 1; }
+          echo "$FULLSCREEN" | grep -Eq '^(true|false)$' || { echo "Invalid fullscreen flag"; exit 1; }
+          echo "$PERMS" | grep -Eq '^(true|false)$' || { echo "Invalid permissions flag"; exit 1; }
 
       - name: Preparing project
         uses: actions/checkout@v4
@@ -87,6 +109,23 @@ jobs:
           done
           convert /tmp/icon.src -resize 288x288 -gravity center -extent 288x288 app/src/main/res/drawable/splash_logo.png
 
+      - name: Preparing splash video and app options
+        run: |
+          set -e
+          VIDEO_URL="${{ github.event.inputs.splash_video_url }}"
+          if [ -n "$VIDEO_URL" ]; then
+            mkdir -p app/src/main/res/raw
+            curl -fsSL --max-filesize 12000000 "$VIDEO_URL" -o app/src/main/res/raw/splash_video.mp4
+            SIZE=$(stat -c %s app/src/main/res/raw/splash_video.mp4)
+            if [ "$SIZE" -gt 12000000 ]; then echo "Splash video is too large"; exit 1; fi
+            file app/src/main/res/raw/splash_video.mp4 | grep -qi 'mp4\|ISO Media' || { echo "Splash video must be an MP4 file"; exit 1; }
+            echo "Splash video ready ($SIZE bytes)"
+          fi
+          if [ "${{ github.event.inputs.permissions }}" != "true" ]; then
+            sed -i '/OPTIONAL_PERMISSIONS_START/,/OPTIONAL_PERMISSIONS_END/d' app/src/main/AndroidManifest.xml
+            echo "Optional permissions removed"
+          fi
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -95,13 +134,20 @@ jobs:
 
       - name: Building Android application
         run: |
-          gradle :app:assembleRelease --no-daemon --parallel --build-cache \
+          set -e
+          FORMAT="${{ github.event.inputs.build_format }}"
+          TASKS=":app:assembleRelease"
+          if [ "$FORMAT" = "aab" ]; then TASKS=":app:bundleRelease"; fi
+          if [ "$FORMAT" = "both" ]; then TASKS=":app:assembleRelease :app:bundleRelease"; fi
+          gradle $TASKS --no-daemon --parallel --build-cache \
             -PAPP_ID="${{ github.event.inputs.package_name }}" \
             -PAPP_NAME="${{ github.event.inputs.app_name }}" \
             -PAPP_URL="${{ github.event.inputs.website_url }}" \
             -PAPP_SPLASH_COLOR="${{ github.event.inputs.splash_color }}" \
             -PAPP_ORIENTATION="${{ github.event.inputs.orientation }}" \
-            -PAPP_VERSION_NAME="${{ github.event.inputs.version_name }}"
+            -PAPP_VERSION_NAME="${{ github.event.inputs.version_name }}" \
+            -PAPP_FULLSCREEN="${{ github.event.inputs.fullscreen }}" \
+            -PAPP_PERMISSIONS="${{ github.event.inputs.permissions }}"
 
       - name: Signing APK
         run: |
@@ -112,14 +158,26 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass egaa12345 -keypass egaa12345 \
             -dname "CN=WebToApk Egaa, OU=Egaa, O=Egaa, L=Jakarta, S=Jakarta, C=ID"
-          UNSIGNED=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
-          "$ANDROID_HOME/build-tools/$BT/zipalign" -p -f 4 "$UNSIGNED" /tmp/aligned.apk
-          "$ANDROID_HOME/build-tools/$BT/apksigner" sign --ks /tmp/release.jks \
-            --ks-pass pass:egaa12345 --key-pass pass:egaa12345 --ks-key-alias egaa \
-            --out /tmp/app.apk /tmp/aligned.apk
-          "$ANDROID_HOME/build-tools/$BT/apksigner" verify /tmp/app.apk
           mkdir -p dist
-          cp /tmp/app.apk "dist/${{ github.event.inputs.package_name }}.apk"
+          FORMAT="${{ github.event.inputs.build_format }}"
+          if [ "$FORMAT" = "apk" ] || [ "$FORMAT" = "both" ]; then
+            UNSIGNED=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
+            "$ANDROID_HOME/build-tools/$BT/zipalign" -p -f 4 "$UNSIGNED" /tmp/aligned.apk
+            "$ANDROID_HOME/build-tools/$BT/apksigner" sign --ks /tmp/release.jks \
+              --ks-pass pass:egaa12345 --key-pass pass:egaa12345 --ks-key-alias egaa \
+              --out /tmp/app.apk /tmp/aligned.apk
+            "$ANDROID_HOME/build-tools/$BT/apksigner" verify /tmp/app.apk
+            cp /tmp/app.apk "dist/${{ github.event.inputs.package_name }}.apk"
+          fi
+          if [ "$FORMAT" = "aab" ] || [ "$FORMAT" = "both" ]; then
+            BUNDLE=$(find app/build/outputs/bundle/release -name '*.aab' | head -n 1)
+            cp "$BUNDLE" /tmp/app.aab
+            jarsigner -keystore /tmp/release.jks -storepass egaa12345 -keypass egaa12345 \
+              -sigalg SHA256withRSA -digestalg SHA-256 /tmp/app.aab egaa
+            jarsigner -verify /tmp/app.aab
+            cp /tmp/app.aab "dist/${{ github.event.inputs.package_name }}.aab"
+          fi
+          ls -l dist
 
       - name: APK Ready
         env:
@@ -127,6 +185,6 @@ jobs:
         run: |
           set -e
           gh release create "build-${{ github.event.inputs.build_id }}" \
-            "dist/${{ github.event.inputs.package_name }}.apk" \
+            dist/* \
             --title "Build ${{ github.event.inputs.build_id }}" \
-            --notes "APK generated by WebToApk Egaa."
+            --notes "Android build generated by WebToApk Egaa."
